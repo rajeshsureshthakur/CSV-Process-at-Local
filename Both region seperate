@@ -1,0 +1,198 @@
+import java.io.*;
+import java.util.*;
+
+public class APISLAAnalyzer {
+    static class RegionMetrics {
+        String artName;
+        int totalAPIs = 0;
+        int slaCrossedCount = 0;
+        
+        public RegionMetrics(String artName) {
+            this.artName = artName;
+        }
+        
+        public double getSlaCrossedPercentage() {
+            return totalAPIs > 0 ? (double) slaCrossedCount / totalAPIs * 100 : 0;
+        }
+    }
+    
+    public static void main(String[] args) {
+        // UK files
+        String ukResponsePath = "C:\\uk_sheet1.csv";
+        String ukSLAPath = "C:\\uk_sheet2.csv";
+        
+        // US files
+        String usResponsePath = "C:\\us_sheet1.csv";
+        String usSLAPath = "C:\\us_sheet2.csv";
+        
+        String outputPath = "C:\\combined_region_summary.csv";
+        
+        try {
+            // Process each region independently
+            Map<String, RegionMetrics> ukMetrics = processRegion(ukResponsePath, ukSLAPath, "UK");
+            Map<String, RegionMetrics> usMetrics = processRegion(usResponsePath, usSLAPath, "US");
+            
+            // Combine and write results
+            writeCombinedAnalysis(outputPath, ukMetrics, usMetrics);
+            
+        } catch (Exception e) {
+            System.out.println("Error in processing: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+    
+    private static Map<String, RegionMetrics> processRegion(String responsePath, String slaPath, String region) 
+            throws IOException {
+        // First load SLA definitions and ART mappings
+        Map<String, String> apiToArtMap = new HashMap<>();
+        Map<String, Double> apiToSlaMap = new HashMap<>();
+        Map<String, RegionMetrics> artMetrics = new TreeMap<>();
+        
+        System.out.println("\nProcessing " + region + " Region...");
+        
+        // Load SLA mappings
+        try (BufferedReader br = new BufferedReader(new FileReader(slaPath))) {
+            br.readLine(); // Skip header
+            String line;
+            while ((line = br.readLine()) != null) {
+                List<String> values = parseCSVLine(line);
+                if (values.size() >= 3) {
+                    String apiName = values.get(0).trim();
+                    String artName = values.get(1).trim();
+                    double sla = parseResponseTime(values.get(2));
+                    
+                    apiToArtMap.put(apiName, artName);
+                    apiToSlaMap.put(apiName, sla);
+                    
+                    // Initialize ART metrics if not exists
+                    artMetrics.putIfAbsent(artName, new RegionMetrics(artName));
+                }
+            }
+        }
+        
+        // Process response times
+        Set<String> processedAPIs = new HashSet<>();
+        try (BufferedReader br = new BufferedReader(new FileReader(responsePath))) {
+            br.readLine(); // Skip header
+            String line;
+            while ((line = br.readLine()) != null) {
+                List<String> values = parseCSVLine(line);
+                if (values.size() >= 6) {
+                    String apiName = values.get(0).trim();
+                    
+                    if (apiToArtMap.containsKey(apiName) && !processedAPIs.contains(apiName)) {
+                        String artName = apiToArtMap.get(apiName);
+                        double responseTime = parseResponseTime(values.get(5));
+                        double sla = apiToSlaMap.get(apiName);
+                        
+                        RegionMetrics metrics = artMetrics.get(artName);
+                        if (metrics != null) {
+                            metrics.totalAPIs++;
+                            if (responseTime > sla) {
+                                metrics.slaCrossedCount++;
+                            }
+                        }
+                        processedAPIs.add(apiName);
+                    }
+                }
+            }
+        }
+        
+        // Debug output
+        System.out.println(region + " Region Processing Complete:");
+        for (RegionMetrics metrics : artMetrics.values()) {
+            System.out.printf("ART: %s, APIs: %d, SLA Crossed: %d%n", 
+                metrics.artName, metrics.totalAPIs, metrics.slaCrossedCount);
+        }
+        
+        return artMetrics;
+    }
+    
+    private static void writeCombinedAnalysis(String outputPath, 
+                                            Map<String, RegionMetrics> ukMetrics,
+                                            Map<String, RegionMetrics> usMetrics) throws IOException {
+        PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(outputPath)));
+        
+        // Write headers
+        pw.println("ART Name,UK Total APIs,UK SLA Crossed,UK SLA Crossed %,US Total APIs,US SLA Crossed,US SLA Crossed %");
+        
+        // Console header
+        System.out.println("\nCombined Region ART Summary Report");
+        System.out.println("=====================================================================================");
+        System.out.printf("%-15s %-12s %-12s %-12s %-12s %-12s %-12s%n", 
+            "ART Name", "UK APIs", "UK Crossed", "UK Cross%", "US APIs", "US Crossed", "US Cross%");
+        System.out.println("-------------------------------------------------------------------------------------");
+        
+        // Get all unique ART names
+        Set<String> allARTs = new TreeSet<>();
+        allARTs.addAll(ukMetrics.keySet());
+        allARTs.addAll(usMetrics.keySet());
+        
+        // Write data for each ART
+        for (String artName : allARTs) {
+            RegionMetrics ukMetric = ukMetrics.getOrDefault(artName, new RegionMetrics(artName));
+            RegionMetrics usMetric = usMetrics.getOrDefault(artName, new RegionMetrics(artName));
+            
+            // Write to file
+            pw.printf("%s,%d,%d,%.1f%%,%d,%d,%.1f%%%n",
+                artName,
+                ukMetric.totalAPIs,
+                ukMetric.slaCrossedCount,
+                ukMetric.getSlaCrossedPercentage(),
+                usMetric.totalAPIs,
+                usMetric.slaCrossedCount,
+                usMetric.getSlaCrossedPercentage());
+            
+            // Write to console
+            System.out.printf("%-15s %-12d %-12d %-12.1f %-12d %-12d %-12.1f%n",
+                artName,
+                ukMetric.totalAPIs,
+                ukMetric.slaCrossedCount,
+                ukMetric.getSlaCrossedPercentage(),
+                usMetric.totalAPIs,
+                usMetric.slaCrossedCount,
+                usMetric.getSlaCrossedPercentage());
+        }
+        
+        pw.close();
+        System.out.println("\nDetailed analysis has been written to: " + outputPath);
+    }
+    
+    private static double parseResponseTime(String value) {
+        try {
+            String cleanValue = value.trim();
+            if (cleanValue.startsWith("\"") && cleanValue.endsWith("\"")) {
+                cleanValue = cleanValue.substring(1, cleanValue.length() - 1);
+            }
+            cleanValue = cleanValue.replace(",", "");
+            return Double.parseDouble(cleanValue);
+        } catch (NumberFormatException e) {
+            return 0.0;
+        }
+    }
+    
+    private static List<String> parseCSVLine(String line) {
+        List<String> values = new ArrayList<>();
+        StringBuilder currentValue = new StringBuilder();
+        boolean inQuotes = false;
+        
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            if (c == '"') {
+                if (inQuotes && i + 1 < line.length() && line.charAt(i + 1) == '"') {
+                    currentValue.append('"');
+                    i++;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+            } else if (c == ',' && !inQuotes) {
+                values.add(currentValue.toString().trim());
+                currentValue = new StringBuilder();
+            } else {
+                currentValue.append(c);
+            }
+        }
+        values.add(currentValue.toString().trim());
+        return values;
+    }
+}
