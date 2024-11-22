@@ -11,7 +11,7 @@ public class ARTNameMapper {
             // Load ART name to short name mapping
             Map<String, String> artShortNameMap = loadARTMapping(sheet1Path);
             
-            // Process sheet2 and create output with short names
+            // Process sheet2 and create output with both names
             processAndWriteOutput(sheet2Path, outputPath, artShortNameMap);
             
             System.out.println("Analysis completed. Output file has been generated successfully.");
@@ -47,14 +47,20 @@ public class ARTNameMapper {
         BufferedReader br = new BufferedReader(new FileReader(inputPath));
         PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(outputPath)));
         
-        // Read and write header
+        // Read header
         String headerLine = br.readLine();
         if (headerLine != null) {
             List<String> headerValues = parseCSVLine(headerLine);
             
-            // Write modified header (replace ART Name with ART Short Name)
-            headerValues.set(0, "ART Short Name");
-            writeCSVLine(pw, headerValues);
+            // Create new header with both ART Name and Short Name
+            List<String> newHeader = new ArrayList<>();
+            newHeader.add("ART Name");
+            newHeader.add("ART Short Name");
+            // Add remaining headers starting from column 2
+            for (int i = 1; i < headerValues.size(); i++) {
+                newHeader.add(headerValues.get(i));
+            }
+            writeCSVLine(pw, newHeader);
         }
         
         // Process data lines
@@ -62,11 +68,20 @@ public class ARTNameMapper {
         while ((line = br.readLine()) != null) {
             List<String> values = parseCSVLine(line);
             if (!values.isEmpty()) {
+                List<String> newValues = new ArrayList<>();
                 String artName = values.get(0).trim();
-                // Replace ART name with short name, or use "Unknown" if not found
                 String shortName = artShortNameMap.getOrDefault(artName, "Unknown");
-                values.set(0, shortName);
-                writeCSVLine(pw, values);
+                
+                // Add ART name and short name first
+                newValues.add(artName);
+                newValues.add(shortName);
+                
+                // Add remaining values starting from column 2
+                for (int i = 1; i < values.size(); i++) {
+                    newValues.add(values.get(i));
+                }
+                
+                writeCSVLine(pw, newValues);
             }
         }
         
