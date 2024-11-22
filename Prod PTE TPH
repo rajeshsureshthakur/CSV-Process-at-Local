@@ -1,0 +1,78 @@
+import java.io.*;
+import java.util.HashMap;
+import java.util.Map;
+
+public class ARTProcessor {
+    public static void main(String[] args) {
+        // Input and output file paths
+        String inputPath = "C:\\data.csv";
+        String outputPath = "C:\\art_summary.csv";
+        
+        Map<String, double[]> artSummary = new HashMap<>();
+        
+        try {
+            // Read input file
+            BufferedReader br = new BufferedReader(new FileReader(inputPath));
+            
+            // Skip header line
+            String line = br.readLine();
+            
+            // Read data lines
+            while ((line = br.readLine()) != null) {
+                String[] values = line.split(",");
+                if (values.length >= 4) {
+                    String artName = values[0].trim();
+                    double prodVolume = Double.parseDouble(values[2].trim());
+                    double uatVolume = Double.parseDouble(values[3].trim());
+                    
+                    // Get or create array for ART [prodVolume, uatVolume]
+                    double[] volumes = artSummary.getOrDefault(artName, new double[2]);
+                    volumes[0] += prodVolume;
+                    volumes[1] += uatVolume;
+                    artSummary.put(artName, volumes);
+                }
+            }
+            br.close();
+            
+            // Write to output file
+            FileWriter fw = new FileWriter(outputPath);
+            BufferedWriter bw = new BufferedWriter(fw);
+            PrintWriter pw = new PrintWriter(bw);
+            
+            // Write headers
+            pw.println("ART Name,Total Prod Volume,Total UAT Volume");
+            
+            // Write data
+            for (Map.Entry<String, double[]> entry : artSummary.entrySet()) {
+                pw.printf("%s,%.0f,%.0f%n", 
+                    entry.getKey(), 
+                    entry.getValue()[0], 
+                    entry.getValue()[1]);
+            }
+            
+            // Close output file
+            pw.close();
+            
+            // Print confirmation and display results in console
+            System.out.println("Summary has been written to: " + outputPath);
+            System.out.println("\nART Summary Report");
+            System.out.println("=====================================");
+            System.out.printf("%-15s %-15s %-15s%n", "ART Name", "Prod Volume", "UAT Volume");
+            System.out.println("-------------------------------------");
+            
+            for (Map.Entry<String, double[]> entry : artSummary.entrySet()) {
+                System.out.printf("%-15s %-15.0f %-15.0f%n", 
+                    entry.getKey(), 
+                    entry.getValue()[0], 
+                    entry.getValue()[1]);
+            }
+            
+        } catch (IOException e) {
+            System.out.println("Error with file operations: " + e.getMessage());
+        } catch (NumberFormatException e) {
+            System.out.println("Error parsing numbers: " + e.getMessage());
+        } catch (Exception e) {
+            System.out.println("Unexpected error: " + e.getMessage());
+        }
+    }
+}
