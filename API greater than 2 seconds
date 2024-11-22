@@ -1,0 +1,146 @@
+import java.io.*;
+import java.util.*;
+
+public class APISLAAnalyzer {
+    static class ARTMetrics {
+        String artName;
+        int totalAPIs = 0;          // Total APIs under this ART
+        int slaCrossedCount = 0;    // Count of APIs crossing SLA
+        Set<String> apiSet = new HashSet<>();  // To store unique APIs
+        
+        public ARTMetrics(String artName) {
+            this.artName = artName;
+        }
+    }
+    
+    public static void main(String[] args) {
+        // Update these file paths
+        String responseTimePath = "C:\\sheet1.csv";  // API Response times
+        String slaDefinitionPath = "C:\\sheet2.csv"; // ART-API-SLA mapping
+        String outputPath = "C:\\sla_analysis.csv";
+        
+        // Map to store API to SLA mapping and API to ART mapping
+        Map<String, Double> apiSLAMap = new HashMap<>();
+        Map<String, String> apiARTMap = new HashMap<>();
+        Map<String, ARTMetrics> artMetrics = new TreeMap<>();
+        
+        try {
+            // First, read sheet2 to get ART-API-SLA mapping
+            loadSLADefinitions(slaDefinitionPath, apiSLAMap, apiARTMap, artMetrics);
+            
+            // Then process response times from sheet1
+            processResponseTimes(responseTimePath, apiSLAMap, apiARTMap, artMetrics);
+            
+            // Write the analysis to output file
+            writeAnalysis(outputPath, artMetrics);
+            
+        } catch (Exception e) {
+            System.out.println("Error in processing: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+    
+    private static void loadSLADefinitions(String filePath, 
+                                         Map<String, Double> apiSLAMap,
+                                         Map<String, String> apiARTMap,
+                                         Map<String, ARTMetrics> artMetrics) throws IOException {
+        BufferedReader br = new BufferedReader(new FileReader(filePath));
+        
+        // Skip header
+        String line = br.readLine();
+        
+        while ((line = br.readLine()) != null) {
+            String[] values = line.split(",");
+            if (values.length >= 3) {
+                String artName = values[0].trim();
+                String apiName = values[1].trim();
+                double sla = Double.parseDouble(values[2].trim());
+                
+                // Store mappings
+                apiSLAMap.put(apiName, sla);
+                apiARTMap.put(apiName, artName);
+                
+                // Initialize or update ART metrics
+                ARTMetrics metrics = artMetrics.computeIfAbsent(artName, ARTMetrics::new);
+                metrics.apiSet.add(apiName);
+                metrics.totalAPIs = metrics.apiSet.size();
+            }
+        }
+        br.close();
+    }
+    
+    private static void processResponseTimes(String filePath,
+                                           Map<String, Double> apiSLAMap,
+                                           Map<String, String> apiARTMap,
+                                           Map<String, ARTMetrics> artMetrics) throws IOException {
+        BufferedReader br = new BufferedReader(new FileReader(filePath));
+        
+        // Skip header
+        String line = br.readLine();
+        Set<String> processedAPIs = new HashSet<>();
+        
+        while ((line = br.readLine()) != null) {
+            String[] values = line.split(",");
+            if (values.length >= 6) {
+                String apiName = values[0].trim();
+                double responseTime = Double.parseDouble(values[5].trim());  // Column F
+                
+                // Only process if we have SLA defined for this API
+                if (apiSLAMap.containsKey(apiName) && !processedAPIs.contains(apiName)) {
+                    String artName = apiARTMap.get(apiName);
+                    double sla = apiSLAMap.get(apiName);
+                    
+                    // Update SLA crossed count if response time exceeds SLA
+                    if (responseTime > sla) {
+                        ARTMetrics metrics = artMetrics.get(artName);
+                        if (metrics != null) {
+                            metrics.slaCrossedCount++;
+                        }
+                    }
+                    processedAPIs.add(apiName);
+                }
+            }
+        }
+        br.close();
+    }
+    
+    private static void writeAnalysis(String outputPath, Map<String, ARTMetrics> artMetrics) 
+            throws IOException {
+        PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(outputPath)));
+        
+        // Write headers
+        pw.println("ART Name,Total APIs,SLA Crossed Count,SLA Crossed Percentage");
+        
+        // Write metrics for each ART
+        for (ARTMetrics metrics : artMetrics.values()) {
+            double slaCrossedPercentage = metrics.totalAPIs > 0 ? 
+                (double) metrics.slaCrossedCount / metrics.totalAPIs * 100 : 0;
+            
+            pw.printf("%s,%d,%d,%.1f%%%n",
+                metrics.artName,
+                metrics.totalAPIs,
+                metrics.slaCrossedCount,
+                slaCrossedPercentage);
+        }
+        
+        pw.close();
+        
+        // Also display on console
+        System.out.println("\nAPI SLA Analysis Report");
+        System.out.println("================================================");
+        System.out.printf("%-20s %-12s %-15s %-10s%n", 
+            "ART Name", "Total APIs", "SLA Crossed", "% Crossed");
+        System.out.println("------------------------------------------------");
+        
+        for (ARTMetrics metrics : artMetrics.values()) {
+            double slaCrossedPercentage = metrics.totalAPIs > 0 ? 
+                (double) metrics.slaCrossedCount / metrics.totalAPIs * 100 : 0;
+            
+            System.out.printf("%-20s %-12d %-15d %-10.1f%%%n",
+                metrics.artName,
+                metrics.totalAPIs,
+                metrics.slaCrossedCount,
+                slaCrossedPercentage);
+        }
+    }
+}
