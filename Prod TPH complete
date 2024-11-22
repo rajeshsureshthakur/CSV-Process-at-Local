@@ -1,0 +1,183 @@
+import java.io.*;
+import java.util.*;
+
+public class APIDataCombiner {
+    static class APIData implements Comparable<APIData> {
+        String apiName;
+        String artName;
+        double tph1;
+        double tph2;
+        
+        public APIData(String apiName, String artName, double tph1, double tph2) {
+            this.apiName = apiName;
+            this.artName = artName;
+            this.tph1 = tph1;
+            this.tph2 = tph2;
+        }
+        
+        @Override
+        public int compareTo(APIData other) {
+            // Sort by TPH1 in descending order
+            return Double.compare(other.tph1, this.tph1);
+        }
+    }
+    
+    public static void main(String[] args) {
+        String sheet1Path = "C:\\sheet1.csv";
+        String sheet2Path = "C:\\sheet2.csv";
+        String sheet3Path = "C:\\sheet3.csv";
+        String mainOutputPath = "C:\\combined_api_data.csv";
+        String filteredOutputPath = "C:\\filtered_api_data.csv";
+        
+        try {
+            Map<String, Double> sheet1Data = loadTPHData(sheet1Path);
+            Map<String, Double> sheet2Data = loadTPHData(sheet2Path);
+            Map<String, String> apiToArtMap = loadAPItoARTMapping(sheet3Path);
+            
+            List<APIData> allData = prepareData(sheet1Data, sheet2Data, apiToArtMap);
+            
+            writeMainOutput(mainOutputPath, allData);
+            writeFilteredOutput(filteredOutputPath, allData);
+            
+            System.out.println("Analysis completed. Output files have been generated successfully.");
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+    
+    private static List<APIData> prepareData(Map<String, Double> sheet1Data,
+                                           Map<String, Double> sheet2Data,
+                                           Map<String, String> apiToArtMap) {
+        List<APIData> apiDataList = new ArrayList<>();
+        for (String apiName : sheet1Data.keySet()) {
+            String artName = apiToArtMap.getOrDefault(apiName, "Unknown");
+            double tph1 = sheet1Data.get(apiName);
+            double tph2 = sheet2Data.getOrDefault(apiName, 0.0);
+            
+            apiDataList.add(new APIData(apiName, artName, tph1, tph2));
+        }
+        return apiDataList;
+    }
+    
+    private static void writeMainOutput(String outputPath, List<APIData> apiDataList) 
+            throws IOException {
+        PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(outputPath)));
+        
+        pw.println("API Name,ART Name,Sheet1 TPH,Sheet2 TPH");
+        
+        List<APIData> sortedList = new ArrayList<>(apiDataList);
+        Collections.sort(sortedList);
+        
+        for (APIData data : sortedList) {
+            pw.printf("%s,%s,%.2f,%.2f%n",
+                data.apiName,
+                data.artName,
+                data.tph1,
+                data.tph2);
+        }
+        
+        pw.close();
+    }
+    
+    private static void writeFilteredOutput(String outputPath, List<APIData> apiDataList) 
+            throws IOException {
+        PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(outputPath)));
+        
+        pw.println("API Name,ART Name,Sheet1 TPH,Sheet2 TPH");
+        
+        List<APIData> filteredList = new ArrayList<>();
+        for (APIData data : apiDataList) {
+            if (data.tph2 == 0 && data.tph1 > 100) {
+                filteredList.add(data);
+            }
+        }
+        
+        Collections.sort(filteredList, (a, b) -> Double.compare(b.tph1, a.tph1));
+        
+        for (APIData data : filteredList) {
+            pw.printf("%s,%s,%.2f,%.2f%n",
+                data.apiName,
+                data.artName,
+                data.tph1,
+                data.tph2);
+        }
+        
+        pw.close();
+    }
+    
+    private static Map<String, Double> loadTPHData(String filePath) throws IOException {
+        Map<String, Double> tphData = new HashMap<>();
+        BufferedReader br = new BufferedReader(new FileReader(filePath));
+        
+        String line = br.readLine(); // Skip header
+        
+        while ((line = br.readLine()) != null) {
+            List<String> values = parseCSVLine(line);
+            if (values.size() >= 2) {
+                String apiName = values.get(0).trim();
+                double tph = parseTPH(values.get(1));
+                tphData.put(apiName, tph);
+            }
+        }
+        
+        br.close();
+        return tphData;
+    }
+    
+    private static Map<String, String> loadAPItoARTMapping(String filePath) throws IOException {
+        Map<String, String> mapping = new HashMap<>();
+        BufferedReader br = new BufferedReader(new FileReader(filePath));
+        
+        String line = br.readLine(); // Skip header
+        
+        while ((line = br.readLine()) != null) {
+            List<String> values = parseCSVLine(line);
+            if (values.size() >= 2) {
+                String apiName = values.get(0).trim();
+                String artName = values.get(1).trim();
+                mapping.put(apiName, artName);
+            }
+        }
+        
+        br.close();
+        return mapping;
+    }
+    
+    private static double parseTPH(String value) {
+        try {
+            String cleanValue = value.trim();
+            if (cleanValue.startsWith("\"") && cleanValue.endsWith("\"")) {
+                cleanValue = cleanValue.substring(1, cleanValue.length() - 1);
+            }
+            cleanValue = cleanValue.replace(",", "");
+            return Double.parseDouble(cleanValue);
+        } catch (NumberFormatException e) {
+            return 0.0;
+        }
+    }
+    
+    private static List<String> parseCSVLine(String line) {
+        List<String> values = new ArrayList<>();
+        StringBuilder currentValue = new StringBuilder();
+        boolean inQuotes = false;
+        
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            if (c == '"') {
+                if (inQuotes && i + 1 < line.length() && line.charAt(i + 1) == '"') {
+                    currentValue.append('"');
+                    i++;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+            } else if (c == ',' && !inQuotes) {
+                values.add(currentValue.toString().trim());
+                currentValue = new StringBuilder();
+            } else {
+                currentValue.append(c);
+            }
+        }
+        values.add(currentValue.toString().trim());
+        return values;
+    }
+}
