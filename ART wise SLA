@@ -1,0 +1,183 @@
+import java.io.*;
+import java.util.*;
+
+public class APISLAAnalyzer {
+    static class ARTMetrics {
+        String artName;
+        int totalAPIs = 0;
+        int slaCrossedCount = 0;
+        Set<String> apiSet = new HashSet<>();
+        Map<String, Double> apiResponseTimes = new HashMap<>();  // To store API response times
+        
+        public ARTMetrics(String artName) {
+            this.artName = artName;
+        }
+    }
+    
+    public static void main(String[] args) {
+        String responseTimePath = "C:\\sheet1.csv";
+        String slaDefinitionPath = "C:\\sheet2.csv";
+        String outputPath = "C:\\art_summary.csv";
+        
+        Map<String, Double> apiSLAMap = new HashMap<>();
+        Map<String, String> apiARTMap = new HashMap<>();
+        Map<String, ARTMetrics> artMetrics = new TreeMap<>();
+        
+        try {
+            // Load SLA definitions and API-ART mappings
+            loadSLADefinitions(slaDefinitionPath, apiSLAMap, apiARTMap, artMetrics);
+            
+            // Process response times
+            processResponseTimes(responseTimePath, apiSLAMap, apiARTMap, artMetrics);
+            
+            // Write final analysis
+            writeAnalysis(outputPath, artMetrics);
+            
+        } catch (Exception e) {
+            System.out.println("Error in processing: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+    
+    private static double parseResponseTime(String value) {
+        try {
+            String cleanValue = value.trim();
+            if (cleanValue.startsWith("\"") && cleanValue.endsWith("\"")) {
+                cleanValue = cleanValue.substring(1, cleanValue.length() - 1);
+            }
+            cleanValue = cleanValue.replace(",", "");
+            return Double.parseDouble(cleanValue);
+        } catch (NumberFormatException e) {
+            return 0.0;
+        }
+    }
+    
+    private static List<String> parseCSVLine(String line) {
+        List<String> values = new ArrayList<>();
+        StringBuilder currentValue = new StringBuilder();
+        boolean inQuotes = false;
+        
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            
+            if (c == '"') {
+                if (inQuotes && i + 1 < line.length() && line.charAt(i + 1) == '"') {
+                    currentValue.append('"');
+                    i++;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+            } else if (c == ',' && !inQuotes) {
+                values.add(currentValue.toString().trim());
+                currentValue = new StringBuilder();
+            } else {
+                currentValue.append(c);
+            }
+        }
+        values.add(currentValue.toString().trim());
+        return values;
+    }
+    
+    private static void loadSLADefinitions(String filePath, 
+                                         Map<String, Double> apiSLAMap,
+                                         Map<String, String> apiARTMap,
+                                         Map<String, ARTMetrics> artMetrics) throws IOException {
+        BufferedReader br = new BufferedReader(new FileReader(filePath));
+        String line = br.readLine(); // Skip header
+        
+        while ((line = br.readLine()) != null) {
+            try {
+                List<String> values = parseCSVLine(line);
+                if (values.size() >= 3) {
+                    String artName = values.get(0);
+                    String apiName = values.get(1);
+                    double sla = parseResponseTime(values.get(2));
+                    
+                    apiSLAMap.put(apiName, sla);
+                    apiARTMap.put(apiName, artName);
+                    
+                    ARTMetrics metrics = artMetrics.computeIfAbsent(artName, ARTMetrics::new);
+                    metrics.apiSet.add(apiName);
+                    metrics.totalAPIs = metrics.apiSet.size();
+                }
+            } catch (Exception e) {
+                System.out.println("Warning: Error processing SLA definition: " + line);
+            }
+        }
+        br.close();
+    }
+    
+    private static void processResponseTimes(String filePath,
+                                           Map<String, Double> apiSLAMap,
+                                           Map<String, String> apiARTMap,
+                                           Map<String, ARTMetrics> artMetrics) throws IOException {
+        BufferedReader br = new BufferedReader(new FileReader(filePath));
+        String line = br.readLine(); // Skip header
+        Set<String> processedAPIs = new HashSet<>();
+        
+        while ((line = br.readLine()) != null) {
+            try {
+                List<String> values = parseCSVLine(line);
+                
+                if (values.size() >= 6) {
+                    String apiName = values.get(0);
+                    double responseTime = parseResponseTime(values.get(5));
+                    
+                    if (apiSLAMap.containsKey(apiName) && !processedAPIs.contains(apiName)) {
+                        String artName = apiARTMap.get(apiName);
+                        double sla = apiSLAMap.get(apiName);
+                        
+                        ARTMetrics metrics = artMetrics.get(artName);
+                        if (metrics != null) {
+                            metrics.apiResponseTimes.put(apiName, responseTime);
+                            if (responseTime > sla) {
+                                metrics.slaCrossedCount++;
+                            }
+                        }
+                        processedAPIs.add(apiName);
+                    }
+                }
+            } catch (Exception e) {
+                System.out.println("Warning: Error processing response time: " + line);
+            }
+        }
+        br.close();
+    }
+    
+    private static void writeAnalysis(String outputPath, Map<String, ARTMetrics> artMetrics) 
+            throws IOException {
+        PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(outputPath)));
+        
+        // Write headers
+        pw.println("ART Name,Total APIs,SLA Crossed Count,SLA Crossed Percentage");
+        
+        // Write data and display console output
+        System.out.println("\nART Summary Report");
+        System.out.println("================================================");
+        System.out.printf("%-20s %-12s %-15s %-10s%n", 
+            "ART Name", "Total APIs", "SLA Crossed", "% Crossed");
+        System.out.println("------------------------------------------------");
+        
+        for (ARTMetrics metrics : artMetrics.values()) {
+            double slaCrossedPercentage = metrics.totalAPIs > 0 ? 
+                (double) metrics.slaCrossedCount / metrics.totalAPIs * 100 : 0;
+            
+            // Write to file
+            pw.printf("%s,%d,%d,%.1f%%%n",
+                metrics.artName,
+                metrics.totalAPIs,
+                metrics.slaCrossedCount,
+                slaCrossedPercentage);
+                
+            // Write to console
+            System.out.printf("%-20s %-12d %-15d %-10.1f%%%n",
+                metrics.artName,
+                metrics.totalAPIs,
+                metrics.slaCrossedCount,
+                slaCrossedPercentage);
+        }
+        
+        pw.close();
+        System.out.println("\nDetailed analysis has been written to: " + outputPath);
+    }
+}
