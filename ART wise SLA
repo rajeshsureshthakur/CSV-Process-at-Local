@@ -7,7 +7,7 @@ public class APISLAAnalyzer {
         int totalAPIs = 0;
         int slaCrossedCount = 0;
         Set<String> apiSet = new HashSet<>();
-        Map<String, Double> apiResponseTimes = new HashMap<>();  // To store API response times
+        Map<String, Double> apiResponseTimes = new HashMap<>();
         
         public ARTMetrics(String artName) {
             this.artName = artName;
@@ -24,13 +24,8 @@ public class APISLAAnalyzer {
         Map<String, ARTMetrics> artMetrics = new TreeMap<>();
         
         try {
-            // Load SLA definitions and API-ART mappings
             loadSLADefinitions(slaDefinitionPath, apiSLAMap, apiARTMap, artMetrics);
-            
-            // Process response times
             processResponseTimes(responseTimePath, apiSLAMap, apiARTMap, artMetrics);
-            
-            // Write final analysis
             writeAnalysis(outputPath, artMetrics);
             
         } catch (Exception e) {
@@ -89,8 +84,9 @@ public class APISLAAnalyzer {
             try {
                 List<String> values = parseCSVLine(line);
                 if (values.size() >= 3) {
-                    String artName = values.get(0);
-                    String apiName = values.get(1);
+                    // Updated column order: API name is in column A (index 0), ART is in column B (index 1)
+                    String apiName = values.get(0);
+                    String artName = values.get(1);
                     double sla = parseResponseTime(values.get(2));
                     
                     apiSLAMap.put(apiName, sla);
