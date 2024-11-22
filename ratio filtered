@@ -1,0 +1,62 @@
+// Add this new method to write the third output file
+    private static void writeRatioFilteredOutput(String outputPath, List<APIData> apiDataList) 
+            throws IOException {
+        PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(outputPath)));
+        
+        pw.println("API Name,ART Name,Sheet1 TPH,Sheet2 TPH,Sheet2/Sheet1 Ratio");
+        
+        List<APIData> filteredList = new ArrayList<>();
+        for (APIData data : apiDataList) {
+            // Check if TPH1 > 100 and ratio is between 0 and 5
+            if (data.tph1 > 100 && !data.ratio.equals("X")) {
+                double ratioValue = Double.parseDouble(data.ratio);
+                if (ratioValue > 0 && ratioValue < 5) {
+                    filteredList.add(data);
+                }
+            }
+        }
+        
+        // Sort by ratio ascending
+        Collections.sort(filteredList, (a, b) -> {
+            double ratioA = Double.parseDouble(a.ratio);
+            double ratioB = Double.parseDouble(b.ratio);
+            return Double.compare(ratioA, ratioB);
+        });
+        
+        for (APIData data : filteredList) {
+            pw.printf("%s,%s,%.2f,%.2f,%s%n",
+                data.apiName,
+                data.artName,
+                data.tph1,
+                data.tph2,
+                data.ratio);
+        }
+        
+        pw.close();
+    }
+
+    // Modify main method to include the new output file
+    public static void main(String[] args) {
+        String sheet1Path = "C:\\sheet1.csv";
+        String sheet2Path = "C:\\sheet2.csv";
+        String sheet3Path = "C:\\sheet3.csv";
+        String mainOutputPath = "C:\\combined_api_data.csv";
+        String filteredOutputPath = "C:\\filtered_api_data.csv";
+        String ratioFilteredOutputPath = "C:\\ratio_filtered_data.csv";  // New output file
+        
+        try {
+            Map<String, Double> sheet1Data = loadTPHData(sheet1Path);
+            Map<String, Double> sheet2Data = loadTPHData(sheet2Path);
+            Map<String, String> apiToArtMap = loadAPItoARTMapping(sheet3Path);
+            
+            List<APIData> allData = prepareData(sheet1Data, sheet2Data, apiToArtMap);
+            
+            writeMainOutput(mainOutputPath, allData);
+            writeFilteredOutput(filteredOutputPath, allData);
+            writeRatioFilteredOutput(ratioFilteredOutputPath, allData);  // Added this line
+            
+            System.out.println("Analysis completed. Output files have been generated successfully.");
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
