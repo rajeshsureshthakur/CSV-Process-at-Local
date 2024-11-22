@@ -1,0 +1,91 @@
+import java.io.*;
+import java.util.*;
+
+public class TPHAnalyzer {
+    public static void main(String[] args) {
+        String inputPath = "C:\\input.csv";
+        String outputPath = "C:\\tph_analysis.csv";
+        
+        try {
+            processTPHData(inputPath, outputPath);
+            System.out.println("Analysis completed. Output file has been generated successfully.");
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+    
+    private static void processTPHData(String inputPath, String outputPath) throws IOException {
+        BufferedReader br = new BufferedReader(new FileReader(inputPath));
+        PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(outputPath)));
+        
+        // Write header
+        pw.println("ART Name,API Name,Prod TPH,PTE TPH,PTE/Prod Ratio");
+        
+        // Skip header from input file
+        String line = br.readLine();
+        
+        // Process each line
+        while ((line = br.readLine()) != null) {
+            List<String> values = parseCSVLine(line);
+            
+            if (values.size() >= 4) {
+                String artName = values.get(0).trim();
+                String apiName = values.get(1).trim();
+                double prodTPH = parseTPH(values.get(2));
+                double pteTPH = parseTPH(values.get(3));
+                
+                // Calculate ratio (handle division by zero)
+                String ratio = prodTPH == 0 ? "X" : String.format("%.1f", pteTPH / prodTPH);
+                
+                // Write to output file
+                pw.printf("%s,%s,%.2f,%.2f,%s%n",
+                    artName,
+                    apiName,
+                    prodTPH,
+                    pteTPH,
+                    ratio);
+            }
+        }
+        
+        br.close();
+        pw.close();
+    }
+    
+    private static double parseTPH(String value) {
+        try {
+            String cleanValue = value.trim();
+            if (cleanValue.startsWith("\"") && cleanValue.endsWith("\"")) {
+                cleanValue = cleanValue.substring(1, cleanValue.length() - 1);
+            }
+            cleanValue = cleanValue.replace(",", "");
+            return Double.parseDouble(cleanValue);
+        } catch (NumberFormatException e) {
+            return 0.0;
+        }
+    }
+    
+    private static List<String> parseCSVLine(String line) {
+        List<String> values = new ArrayList<>();
+        StringBuilder currentValue = new StringBuilder();
+        boolean inQuotes = false;
+        
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            if (c == '"') {
+                if (inQuotes && i + 1 < line.length() && line.charAt(i + 1) == '"') {
+                    currentValue.append('"');
+                    i++;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+            } else if (c == ',' && !inQuotes) {
+                values.add(currentValue.toString().trim());
+                currentValue = new StringBuilder();
+            } else {
+                currentValue.append(c);
+            }
+        }
+        values.add(currentValue.toString().trim());
+        return values;
+    }
+}
