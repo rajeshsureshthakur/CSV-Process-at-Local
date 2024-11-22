@@ -1,0 +1,152 @@
+import java.io.*;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.TreeMap;
+
+public class ARTProcessor {
+    static class VolumeData {
+        double[] file1Volumes; // [prodVolume, uatVolume]
+        double[] file2Volumes; // [prodVolume, uatVolume]
+        
+        public VolumeData() {
+            this.file1Volumes = new double[2];
+            this.file2Volumes = new double[2];
+        }
+        
+        public double getFile1Ratio() {
+            return file1Volumes[0] == 0 ? 0 : Math.round((file1Volumes[1] / file1Volumes[0]) * 10.0) / 10.0;
+        }
+        
+        public double getFile2Ratio() {
+            return file2Volumes[0] == 0 ? 0 : Math.round((file2Volumes[1] / file2Volumes[0]) * 10.0) / 10.0;
+        }
+        
+        public double getTotalProdVolume() {
+            return file1Volumes[0] + file2Volumes[0];
+        }
+        
+        public double getTotalUATVolume() {
+            return file1Volumes[1] + file2Volumes[1];
+        }
+        
+        public double getTotalRatio() {
+            double totalProd = getTotalProdVolume();
+            return totalProd == 0 ? 0 : Math.round((getTotalUATVolume() / totalProd) * 10.0) / 10.0;
+        }
+    }
+    
+    public static void main(String[] args) {
+        // Update these file paths
+        String inputPath1 = "C:\\data1.csv";
+        String inputPath2 = "C:\\data2.csv";
+        String outputPath = "C:\\combined_summary.csv";
+        
+        Map<String, VolumeData> artSummary = new TreeMap<>();
+        
+        try {
+            // Process both files
+            processInputFile(inputPath1, artSummary, true);
+            processInputFile(inputPath2, artSummary, false);
+            
+            // Write combined output
+            writeCombinedOutput(outputPath, artSummary);
+            
+            // Display in console
+            printConsoleOutput(artSummary);
+            
+        } catch (Exception e) {
+            System.out.println("Error in processing: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+    
+    private static void processInputFile(String filePath, Map<String, VolumeData> artSummary, boolean isFirstFile) 
+            throws IOException {
+        BufferedReader br = new BufferedReader(new FileReader(filePath));
+        
+        // Skip header line
+        String line = br.readLine();
+        
+        // Read data lines
+        while ((line = br.readLine()) != null) {
+            String[] values = line.split(",");
+            if (values.length >= 4) {
+                String artName = values[0].trim();
+                double prodVolume = Double.parseDouble(values[2].trim());
+                double uatVolume = Double.parseDouble(values[3].trim());
+                
+                VolumeData volumeData = artSummary.computeIfAbsent(artName, k -> new VolumeData());
+                
+                if (isFirstFile) {
+                    volumeData.file1Volumes[0] += prodVolume;
+                    volumeData.file1Volumes[1] += uatVolume;
+                } else {
+                    volumeData.file2Volumes[0] += prodVolume;
+                    volumeData.file2Volumes[1] += uatVolume;
+                }
+            }
+        }
+        br.close();
+    }
+    
+    private static void writeCombinedOutput(String outputPath, Map<String, VolumeData> artSummary) 
+            throws IOException {
+        PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(outputPath)));
+        
+        // Write headers
+        pw.println("ART Name,File1 Prod Volume,File1 UAT Volume,File1 UAT/Prod Ratio," +
+                  "File2 Prod Volume,File2 UAT Volume,File2 UAT/Prod Ratio," +
+                  "Total Prod Volume,Total UAT Volume,Total UAT/Prod Ratio");
+        
+        // Write data
+        for (Map.Entry<String, VolumeData> entry : artSummary.entrySet()) {
+            VolumeData data = entry.getValue();
+            pw.printf("%s,%.0f,%.0f,%.1f,%.0f,%.0f,%.1f,%.0f,%.0f,%.1f%n",
+                entry.getKey(),
+                data.file1Volumes[0],
+                data.file1Volumes[1],
+                data.getFile1Ratio(),
+                data.file2Volumes[0],
+                data.file2Volumes[1],
+                data.getFile2Ratio(),
+                data.getTotalProdVolume(),
+                data.getTotalUATVolume(),
+                data.getTotalRatio());
+        }
+        
+        pw.close();
+        System.out.println("Combined summary has been written to: " + outputPath);
+    }
+    
+    private static void printConsoleOutput(Map<String, VolumeData> artSummary) {
+        System.out.println("\nCombined ART Summary Report");
+        System.out.println("=======================================================================================================");
+        System.out.printf("%-15s %-12s %-12s %-12s %-12s %-12s %-12s %-12s %-12s %-12s%n", 
+            "ART Name", 
+            "File1 Prod", 
+            "File1 UAT", 
+            "F1 Ratio",
+            "File2 Prod", 
+            "File2 UAT",
+            "F2 Ratio",
+            "Total Prod",
+            "Total UAT",
+            "Tot Ratio");
+        System.out.println("-------------------------------------------------------------------------------------------------------");
+        
+        for (Map.Entry<String, VolumeData> entry : artSummary.entrySet()) {
+            VolumeData data = entry.getValue();
+            System.out.printf("%-15s %-12.0f %-12.0f %-12.1f %-12.0f %-12.0f %-12.1f %-12.0f %-12.0f %-12.1f%n",
+                entry.getKey(),
+                data.file1Volumes[0],
+                data.file1Volumes[1],
+                data.getFile1Ratio(),
+                data.file2Volumes[0],
+                data.file2Volumes[1],
+                data.getFile2Ratio(),
+                data.getTotalProdVolume(),
+                data.getTotalUATVolume(),
+                data.getTotalRatio());
+        }
+    }
+}
