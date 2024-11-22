@@ -1,0 +1,200 @@
+import java.io.*;
+import java.util.*;
+
+public class APISLAAnalyzer {
+    static class RegionMetrics {
+        String artName;
+        int totalAPIs = 0;
+        int slaCrossedCount = 0;
+        
+        public RegionMetrics(String artName) {
+            this.artName = artName;
+        }
+        
+        public double getSlaCrossedPercentage() {
+            return totalAPIs > 0 ? (double) slaCrossedCount / totalAPIs * 100 : 0;
+        }
+    }
+    
+    static class ProcessingResult {
+        Map<String, RegionMetrics> metrics;
+        Set<String> unmappedAPIs;
+        
+        ProcessingResult(Map<String, RegionMetrics> metrics, Set<String> unmappedAPIs) {
+            this.metrics = metrics;
+            this.unmappedAPIs = unmappedAPIs;
+        }
+    }
+    
+    public static void main(String[] args) {
+        // NAM files
+        String namResponsePath = "C:\\nam_sheet1.csv";
+        String namSLAPath = "C:\\nam_sheet2.csv";
+        
+        // IDL files
+        String idlResponsePath = "C:\\idl_sheet1.csv";
+        String idlSLAPath = "C:\\idl_sheet2.csv";
+        
+        String outputPath = "C:\\combined_region_summary.csv";
+        String errorPath = "C:\\missing_art_apis.csv";
+        
+        try {
+            ProcessingResult namResult = processRegion(namResponsePath, namSLAPath);
+            ProcessingResult idlResult = processRegion(idlResponsePath, idlSLAPath);
+            
+            writeCombinedAnalysis(outputPath, namResult.metrics, idlResult.metrics);
+            writeErrorReport(errorPath, namResult.unmappedAPIs, idlResult.unmappedAPIs);
+            
+            System.out.println("Analysis completed. Output files have been generated successfully.");
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+    
+    private static ProcessingResult processRegion(String responsePath, String slaPath) 
+            throws IOException {
+        Map<String, String> apiToArtMap = new HashMap<>();
+        Map<String, Double> apiToSlaMap = new HashMap<>();
+        Map<String, RegionMetrics> artMetrics = new TreeMap<>();
+        Set<String> unmappedAPIs = new HashSet<>();
+        
+        // Load SLA mappings
+        try (BufferedReader br = new BufferedReader(new FileReader(slaPath))) {
+            br.readLine(); // Skip header
+            String line;
+            while ((line = br.readLine()) != null) {
+                List<String> values = parseCSVLine(line);
+                if (values.size() >= 3) {
+                    String apiName = values.get(0).trim();
+                    String artName = values.get(1).trim();
+                    double sla = parseResponseTime(values.get(2));
+                    
+                    if (!artName.isEmpty()) {
+                        apiToArtMap.put(apiName, artName);
+                        apiToSlaMap.put(apiName, sla);
+                        artMetrics.putIfAbsent(artName, new RegionMetrics(artName));
+                    }
+                }
+            }
+        }
+        
+        // Process response times
+        Set<String> processedAPIs = new HashSet<>();
+        try (BufferedReader br = new BufferedReader(new FileReader(responsePath))) {
+            br.readLine(); // Skip header
+            String line;
+            while ((line = br.readLine()) != null) {
+                List<String> values = parseCSVLine(line);
+                if (values.size() >= 6) {
+                    String apiName = values.get(0).trim();
+                    
+                    if (!apiName.isEmpty() && !processedAPIs.contains(apiName)) {
+                        if (!apiToArtMap.containsKey(apiName)) {
+                            unmappedAPIs.add(apiName);
+                            continue;
+                        }
+                        
+                        String artName = apiToArtMap.get(apiName);
+                        double responseTime = parseResponseTime(values.get(5));
+                        double sla = apiToSlaMap.get(apiName);
+                        
+                        RegionMetrics metrics = artMetrics.get(artName);
+                        if (metrics != null) {
+                            metrics.totalAPIs++;
+                            if (responseTime > sla) {
+                                metrics.slaCrossedCount++;
+                            }
+                        }
+                        processedAPIs.add(apiName);
+                    }
+                }
+            }
+        }
+        
+        return new ProcessingResult(artMetrics, unmappedAPIs);
+    }
+    
+    private static double parseResponseTime(String value) {
+        try {
+            String cleanValue = value.trim();
+            if (cleanValue.startsWith("\"") && cleanValue.endsWith("\"")) {
+                cleanValue = cleanValue.substring(1, cleanValue.length() - 1);
+            }
+            cleanValue = cleanValue.replace(",", "");
+            return Double.parseDouble(cleanValue);
+        } catch (NumberFormatException e) {
+            return 0.0;
+        }
+    }
+    
+    private static List<String> parseCSVLine(String line) {
+        List<String> values = new ArrayList<>();
+        StringBuilder currentValue = new StringBuilder();
+        boolean inQuotes = false;
+        
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            if (c == '"') {
+                if (inQuotes && i + 1 < line.length() && line.charAt(i + 1) == '"') {
+                    currentValue.append('"');
+                    i++;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+            } else if (c == ',' && !inQuotes) {
+                values.add(currentValue.toString().trim());
+                currentValue = new StringBuilder();
+            } else {
+                currentValue.append(c);
+            }
+        }
+        values.add(currentValue.toString().trim());
+        return values;
+    }
+    
+    private static void writeErrorReport(String errorPath, 
+                                       Set<String> namUnmappedAPIs, 
+                                       Set<String> idlUnmappedAPIs) throws IOException {
+        PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(errorPath)));
+        pw.println("Region,API Name,Error Type");
+        
+        for (String api : namUnmappedAPIs) {
+            pw.printf("NAM,%s,Missing ART Mapping%n", api);
+        }
+        
+        for (String api : idlUnmappedAPIs) {
+            pw.printf("IDL,%s,Missing ART Mapping%n", api);
+        }
+        
+        pw.close();
+    }
+    
+    private static void writeCombinedAnalysis(String outputPath, 
+                                            Map<String, RegionMetrics> namMetrics,
+                                            Map<String, RegionMetrics> idlMetrics) throws IOException {
+        PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(outputPath)));
+        
+        pw.println("ART Name,NAM Total APIs,NAM SLA Crossed,NAM SLA Crossed %,IDL Total APIs,IDL SLA Crossed,IDL SLA Crossed %");
+        
+        Set<String> allARTs = new TreeSet<>();
+        allARTs.addAll(namMetrics.keySet());
+        allARTs.addAll(idlMetrics.keySet());
+        
+        for (String artName : allARTs) {
+            RegionMetrics namMetric = namMetrics.getOrDefault(artName, new RegionMetrics(artName));
+            RegionMetrics idlMetric = idlMetrics.getOrDefault(artName, new RegionMetrics(artName));
+            
+            pw.printf("%s,%d,%d,%.1f%%,%d,%d,%.1f%%%n",
+                artName,
+                namMetric.totalAPIs,
+                namMetric.slaCrossedCount,
+                namMetric.getSlaCrossedPercentage(),
+                idlMetric.totalAPIs,
+                idlMetric.slaCrossedCount,
+                idlMetric.getSlaCrossedPercentage());
+        }
+        
+        pw.close();
+    }
+}
