@@ -1,0 +1,197 @@
+import java.io.*;
+import java.util.*;
+
+public class APISLAAnalyzer {
+    static class RegionMetrics {
+        int totalAPIs = 0;
+        int slaCrossedCount = 0;
+        Set<String> apiSet = new HashSet<>();
+        Map<String, Double> apiResponseTimes = new HashMap<>();
+        
+        public double getSlaCrossedPercentage() {
+            return totalAPIs > 0 ? (double) slaCrossedCount / totalAPIs * 100 : 0;
+        }
+    }
+    
+    static class ARTMetrics {
+        String artName;
+        RegionMetrics ukMetrics = new RegionMetrics();
+        RegionMetrics usMetrics = new RegionMetrics();
+        
+        public ARTMetrics(String artName) {
+            this.artName = artName;
+        }
+    }
+    
+    public static void main(String[] args) {
+        // UK files
+        String ukResponsePath = "C:\\uk_sheet1.csv";
+        String ukSLAPath = "C:\\uk_sheet2.csv";
+        
+        // US files
+        String usResponsePath = "C:\\us_sheet1.csv";
+        String usSLAPath = "C:\\us_sheet2.csv";
+        
+        String outputPath = "C:\\combined_region_summary.csv";
+        
+        Map<String, ARTMetrics> artMetrics = new TreeMap<>();
+        
+        try {
+            // Process UK data
+            System.out.println("Processing UK Data...");
+            processRegionData(ukResponsePath, ukSLAPath, artMetrics, true);
+            
+            // Process US data
+            System.out.println("\nProcessing US Data...");
+            processRegionData(usResponsePath, usSLAPath, artMetrics, false);
+            
+            // Write combined analysis
+            writeAnalysis(outputPath, artMetrics);
+            
+        } catch (Exception e) {
+            System.out.println("Error in processing: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+    
+    private static void processRegionData(String responsePath, String slaPath, 
+                                        Map<String, ARTMetrics> artMetrics, 
+                                        boolean isUK) throws IOException {
+        // Separate maps for each region's processing
+        Map<String, Double> apiSLAMap = new HashMap<>();
+        Map<String, String> apiARTMap = new HashMap<>();
+        Set<String> processedAPIs = new HashSet<>();  // Reset for each region
+        
+        // Load SLA definitions
+        loadSLADefinitions(slaPath, apiSLAMap, apiARTMap, artMetrics, isUK);
+        
+        // Process response times with the region's processed APIs set
+        processResponseTimes(responsePath, apiSLAMap, apiARTMap, artMetrics, isUK, processedAPIs);
+        
+        // Debug output
+        String region = isUK ? "UK" : "US";
+        System.out.println(region + " Region Processing Complete:");
+        for (Map.Entry<String, ARTMetrics> entry : artMetrics.entrySet()) {
+            RegionMetrics metrics = isUK ? entry.getValue().ukMetrics : entry.getValue().usMetrics;
+            System.out.println("ART: " + entry.getKey() + 
+                             ", APIs: " + metrics.apiSet.size() + 
+                             ", SLA Crossed: " + metrics.slaCrossedCount);
+        }
+    }
+    
+    // ... [parseResponseTime and parseCSVLine methods remain the same] ...
+
+    private static void loadSLADefinitions(String filePath, 
+                                         Map<String, Double> apiSLAMap,
+                                         Map<String, String> apiARTMap,
+                                         Map<String, ARTMetrics> artMetrics,
+                                         boolean isUK) throws IOException {
+        BufferedReader br = new BufferedReader(new FileReader(filePath));
+        String line = br.readLine(); // Skip header
+        
+        while ((line = br.readLine()) != null) {
+            try {
+                List<String> values = parseCSVLine(line);
+                if (values.size() >= 3) {
+                    String apiName = values.get(0);
+                    String artName = values.get(1);
+                    double sla = parseResponseTime(values.get(2));
+                    
+                    apiSLAMap.put(apiName, sla);
+                    apiARTMap.put(apiName, artName);
+                    
+                    ARTMetrics metrics = artMetrics.computeIfAbsent(artName, ARTMetrics::new);
+                    RegionMetrics regionMetrics = isUK ? metrics.ukMetrics : metrics.usMetrics;
+                    regionMetrics.apiSet.add(apiName);
+                }
+            } catch (Exception e) {
+                System.out.println("Warning: Error processing SLA definition: " + line);
+            }
+        }
+        br.close();
+    }
+    
+    private static void processResponseTimes(String filePath,
+                                           Map<String, Double> apiSLAMap,
+                                           Map<String, String> apiARTMap,
+                                           Map<String, ARTMetrics> artMetrics,
+                                           boolean isUK,
+                                           Set<String> processedAPIs) throws IOException {
+        BufferedReader br = new BufferedReader(new FileReader(filePath));
+        String line = br.readLine(); // Skip header
+        
+        while ((line = br.readLine()) != null) {
+            try {
+                List<String> values = parseCSVLine(line);
+                
+                if (values.size() >= 6) {
+                    String apiName = values.get(0);
+                    double responseTime = parseResponseTime(values.get(5));
+                    
+                    if (apiSLAMap.containsKey(apiName) && !processedAPIs.contains(apiName)) {
+                        String artName = apiARTMap.get(apiName);
+                        double sla = apiSLAMap.get(apiName);
+                        
+                        ARTMetrics artMetric = artMetrics.get(artName);
+                        if (artMetric != null) {
+                            RegionMetrics regionMetrics = isUK ? artMetric.ukMetrics : artMetric.usMetrics;
+                            regionMetrics.apiResponseTimes.put(apiName, responseTime);
+                            regionMetrics.totalAPIs = regionMetrics.apiSet.size();  // Update total APIs count
+                            if (responseTime > sla) {
+                                regionMetrics.slaCrossedCount++;
+                            }
+                        }
+                        processedAPIs.add(apiName);
+                    }
+                }
+            } catch (Exception e) {
+                System.out.println("Warning: Error processing response time: " + line);
+            }
+        }
+        br.close();
+    }
+    
+    private static void writeAnalysis(String outputPath, Map<String, ARTMetrics> artMetrics) 
+            throws IOException {
+        PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(outputPath)));
+        
+        // Write headers
+        pw.println("ART Name,UK Total APIs,UK SLA Crossed,UK SLA Crossed %,US Total APIs,US SLA Crossed,US SLA Crossed %");
+        
+        // Console header
+        System.out.println("\nCombined Region ART Summary Report");
+        System.out.println("=====================================================================================");
+        System.out.printf("%-15s %-12s %-12s %-12s %-12s %-12s %-12s%n", 
+            "ART Name", "UK APIs", "UK Crossed", "UK Cross%", "US APIs", "US Crossed", "US Cross%");
+        System.out.println("-------------------------------------------------------------------------------------");
+        
+        // Write data for each ART
+        for (ARTMetrics metrics : artMetrics.values()) {
+            double ukCrossedPercent = metrics.ukMetrics.getSlaCrossedPercentage();
+            double usCrossedPercent = metrics.usMetrics.getSlaCrossedPercentage();
+            
+            // Write to file
+            pw.printf("%s,%d,%d,%.1f%%,%d,%d,%.1f%%%n",
+                metrics.artName,
+                metrics.ukMetrics.totalAPIs,
+                metrics.ukMetrics.slaCrossedCount,
+                ukCrossedPercent,
+                metrics.usMetrics.totalAPIs,
+                metrics.usMetrics.slaCrossedCount,
+                usCrossedPercent);
+            
+            // Write to console
+            System.out.printf("%-15s %-12d %-12d %-12.1f %-12d %-12d %-12.1f%n",
+                metrics.artName,
+                metrics.ukMetrics.totalAPIs,
+                metrics.ukMetrics.slaCrossedCount,
+                ukCrossedPercent,
+                metrics.usMetrics.totalAPIs,
+                metrics.usMetrics.slaCrossedCount,
+                usCrossedPercent);
+        }
+        
+        pw.close();
+        System.out.println("\nDetailed analysis has been written to: " + outputPath);
+    }
+}
