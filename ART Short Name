@@ -1,0 +1,119 @@
+import java.io.*;
+import java.util.*;
+
+public class ARTNameMapper {
+    public static void main(String[] args) {
+        String sheet1Path = "C:\\sheet1.csv"; // Contains ART name and short name
+        String sheet2Path = "C:\\sheet2.csv"; // Contains ART name and other data
+        String outputPath = "C:\\mapped_art_data.csv";
+        
+        try {
+            // Load ART name to short name mapping
+            Map<String, String> artShortNameMap = loadARTMapping(sheet1Path);
+            
+            // Process sheet2 and create output with short names
+            processAndWriteOutput(sheet2Path, outputPath, artShortNameMap);
+            
+            System.out.println("Analysis completed. Output file has been generated successfully.");
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+    
+    private static Map<String, String> loadARTMapping(String filePath) throws IOException {
+        Map<String, String> mapping = new HashMap<>();
+        BufferedReader br = new BufferedReader(new FileReader(filePath));
+        
+        // Skip header
+        String line = br.readLine();
+        
+        while ((line = br.readLine()) != null) {
+            List<String> values = parseCSVLine(line);
+            if (values.size() >= 2) {
+                String artName = values.get(0).trim();
+                String shortName = values.get(1).trim();
+                if (!artName.isEmpty() && !shortName.isEmpty()) {
+                    mapping.put(artName, shortName);
+                }
+            }
+        }
+        
+        br.close();
+        return mapping;
+    }
+    
+    private static void processAndWriteOutput(String inputPath, String outputPath, 
+                                            Map<String, String> artShortNameMap) throws IOException {
+        BufferedReader br = new BufferedReader(new FileReader(inputPath));
+        PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(outputPath)));
+        
+        // Read and write header
+        String headerLine = br.readLine();
+        if (headerLine != null) {
+            List<String> headerValues = parseCSVLine(headerLine);
+            
+            // Write modified header (replace ART Name with ART Short Name)
+            headerValues.set(0, "ART Short Name");
+            writeCSVLine(pw, headerValues);
+        }
+        
+        // Process data lines
+        String line;
+        while ((line = br.readLine()) != null) {
+            List<String> values = parseCSVLine(line);
+            if (!values.isEmpty()) {
+                String artName = values.get(0).trim();
+                // Replace ART name with short name, or use "Unknown" if not found
+                String shortName = artShortNameMap.getOrDefault(artName, "Unknown");
+                values.set(0, shortName);
+                writeCSVLine(pw, values);
+            }
+        }
+        
+        br.close();
+        pw.close();
+    }
+    
+    private static List<String> parseCSVLine(String line) {
+        List<String> values = new ArrayList<>();
+        StringBuilder currentValue = new StringBuilder();
+        boolean inQuotes = false;
+        
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            if (c == '"') {
+                if (inQuotes && i + 1 < line.length() && line.charAt(i + 1) == '"') {
+                    currentValue.append('"');
+                    i++;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+            } else if (c == ',' && !inQuotes) {
+                values.add(currentValue.toString().trim());
+                currentValue = new StringBuilder();
+            } else {
+                currentValue.append(c);
+            }
+        }
+        values.add(currentValue.toString().trim());
+        return values;
+    }
+    
+    private static void writeCSVLine(PrintWriter pw, List<String> values) {
+        for (int i = 0; i < values.size(); i++) {
+            String value = values.get(i);
+            // Add quotes if value contains comma
+            if (value.contains(",")) {
+                pw.print("\"" + value + "\"");
+            } else {
+                pw.print(value);
+            }
+            
+            // Add comma for all except last value
+            if (i < values.size() - 1) {
+                pw.print(",");
+            }
+        }
+        pw.println();
+    }
+}
