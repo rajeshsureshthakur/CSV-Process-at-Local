@@ -1,2 +1,5 @@
-ON CONCAT(',', REPLACE(REPLACE(T2.'Prerequisites', '\n', ','), ' ', ''), ',') 
-    LIKE CONCAT('%,', T1.'API Name', ',%')
+SELECT DISTINCT T2.'Issue Key', T1.'API Name'
+FROM T1
+JOIN T2
+ON (CONCAT(',', REPLACE(REPLACE(T2.'Prerequisites and dependencies', '\n', ','), ' ', ''), ',') 
+    LIKE CONCAT('%,', T1.'API Name', ',%'))
