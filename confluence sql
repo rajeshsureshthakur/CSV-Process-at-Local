@@ -1,0 +1,2 @@
+ON CONCAT(',', REPLACE(REPLACE(T2.'Prerequisites', '\n', ','), ' ', ''), ',') 
+    LIKE CONCAT('%,', T1.'API Name', ',%')
