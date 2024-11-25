@@ -12,3 +12,14 @@ AND (
     OR prerequisitesAndDependencies ~ T1."API Name"
 )
 ORDER BY created DESC
+
+SELECT 
+    T1."API Name",
+    LISTAGG(T2.issue_key, ', ') WITHIN GROUP (ORDER BY T2.issue_key) as matched_bugs
+FROM 
+    T1
+    JOIN T2 ON T2."Prerequisites and dependencies" LIKE '%' || T1."API Name" || '%'
+GROUP BY 
+    T1."API Name"
+ORDER BY 
+    T1."API Name";
