@@ -5,12 +5,17 @@ ON (CONCAT(',', REPLACE(REPLACE(T2.'Prerequisites and dependencies', '\n', ','),
     LIKE CONCAT('%,', T1.'API Name', ',%'))
 
 
+WITH split_dependencies AS (
+    SELECT 
+        T2.*,
+        trim(regexp_split_to_table("Prerequisites and dependencies", ',')) as single_api
+    FROM T2
+)
 SELECT DISTINCT
     T2.*
 FROM
-    T1,
-    T2
-WHERE
-    T2."Prerequisites and dependencies" LIKE '%' || T1."API Name" || '%'
+    T1
+    JOIN split_dependencies sd ON sd.single_api LIKE '%' || T1."API Name" || '%'
+    JOIN T2 ON T2.issue_key = sd.issue_key
 ORDER BY
     T2.created_date DESC;
