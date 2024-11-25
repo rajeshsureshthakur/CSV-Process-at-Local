@@ -23,3 +23,9 @@ GROUP BY
     T1."API Name"
 ORDER BY 
     T1."API Name";
+
+
+REPLACE(
+           CONCAT_VIEW_AGGR(CONCAT(T2.'Issue Key', ', ')),
+           ', ', ''
+       )
