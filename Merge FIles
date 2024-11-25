@@ -1,0 +1,56 @@
+import java.io.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+
+public class CSVMerger {
+    public static void main(String[] args) {
+        // List of input CSV files
+        List<String> inputFiles = new ArrayList<>();
+        inputFiles.add("file1.csv");
+        inputFiles.add("file2.csv");
+        inputFiles.add("file3.csv");
+        inputFiles.add("file4.csv");
+        
+        String outputFile = "merged_output.csv";
+        
+        try {
+            // Create FileWriter object for output file
+            FileWriter fw = new FileWriter(outputFile);
+            BufferedWriter bw = new BufferedWriter(fw);
+            
+            // Write header to output file
+            bw.write("Server Name,Metric Name,Metric Max Value");
+            bw.newLine();
+            
+            // Process each input file
+            for (String inputFile : inputFiles) {
+                try {
+                    // Read all lines from the input file
+                    List<String> lines = Files.readAllLines(Paths.get(inputFile));
+                    
+                    // Skip header line if it exists (first line)
+                    for (int i = 1; i < lines.size(); i++) {
+                        String line = lines.get(i);
+                        // Write each line to output file
+                        bw.write(line);
+                        bw.newLine();
+                    }
+                    
+                    System.out.println("Processed file: " + inputFile);
+                    
+                } catch (IOException e) {
+                    System.err.println("Error reading file " + inputFile + ": " + e.getMessage());
+                }
+            }
+            
+            // Close the BufferedWriter
+            bw.close();
+            System.out.println("Merged file created successfully: " + outputFile);
+            
+        } catch (IOException e) {
+            System.err.println("Error writing to output file: " + e.getMessage());
+        }
+    }
+}
