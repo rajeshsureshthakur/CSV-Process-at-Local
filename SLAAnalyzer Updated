@@ -1,0 +1,226 @@
+import java.io.*;
+import java.util.*;
+
+public class APISLAAnalyzer {
+    static class RegionMetrics {
+        String artName;
+        int totalAPIs = 0;
+        int slaCrossedCount = 0;
+        Set<String> apiSet = new HashSet<>();
+        
+        public RegionMetrics(String artName) {
+            this.artName = artName;
+        }
+        
+        public double getSlaCrossedPercentage() {
+            return totalAPIs > 0 ? (double) slaCrossedCount / totalAPIs * 100 : 0;
+        }
+    }
+    
+    static class APIDetails {
+        String apiName;
+        String artName;
+        double responseTime;
+        double sla;
+        
+        public APIDetails(String apiName, String artName, double responseTime, double sla) {
+            this.apiName = apiName;
+            this.artName = artName;
+            this.responseTime = responseTime;
+            this.sla = sla;
+        }
+        
+        public double getDeviation() {
+            return ((responseTime - sla) / sla) * 100;
+        }
+    }
+    
+    public static void main(String[] args) {
+        String namResponsePath = "C:\\nam_sheet1.csv";
+        String namSLAPath = "C:\\nam_sheet2.csv";
+        String idlResponsePath = "C:\\idl_sheet1.csv";
+        String idlSLAPath = "C:\\idl_sheet2.csv";
+        String outputPath = "C:\\combined_region_summary.csv";
+        
+        try {
+            Map<String, ARTMetrics> artMetrics = new TreeMap<>();
+            
+            processRegionData(namResponsePath, namSLAPath, artMetrics, true);
+            processRegionData(idlResponsePath, idlSLAPath, artMetrics, false);
+            
+            writeCombinedAnalysis(outputPath, artMetrics);
+            
+            System.out.println("Analysis completed. Output files have been generated successfully.");
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+    
+    private static void processRegionData(String responsePath, String slaPath, 
+                                        Map<String, ARTMetrics> artMetrics, 
+                                        boolean isNAM) throws IOException {
+        Map<String, Double> apiSLAMap = new HashMap<>();
+        Map<String, String> apiARTMap = new HashMap<>();
+        Map<String, Double> apiResponseMap = new HashMap<>();
+        
+        // Load SLA definitions
+        try (BufferedReader br = new BufferedReader(new FileReader(slaPath))) {
+            br.readLine(); // Skip header
+            String line;
+            while ((line = br.readLine()) != null) {
+                List<String> values = parseCSVLine(line);
+                if (values.size() >= 3) {
+                    String apiName = values.get(0).trim();
+                    String artName = values.get(1).trim();
+                    double sla = parseResponseTime(values.get(2));
+                    
+                    apiSLAMap.put(apiName, sla);
+                    apiARTMap.put(apiName, artName);
+                }
+            }
+        }
+        
+        // Process response times
+        Set<String> processedAPIs = new HashSet<>();
+        try (BufferedReader br = new BufferedReader(new FileReader(responsePath))) {
+            br.readLine(); // Skip header
+            String line;
+            while ((line = br.readLine()) != null) {
+                List<String> values = parseCSVLine(line);
+                if (values.size() >= 6) {
+                    String apiName = values.get(0).trim();
+                    double responseTime = parseResponseTime(values.get(5));
+                    
+                    if (!processedAPIs.contains(apiName)) {
+                        apiResponseMap.put(apiName, responseTime);
+                        processedAPIs.add(apiName);
+                        
+                        if (apiSLAMap.containsKey(apiName)) {
+                            String artName = apiARTMap.get(apiName);
+                            double sla = apiSLAMap.get(apiName);
+                            
+                            ARTMetrics metrics = artMetrics.computeIfAbsent(artName, 
+                                k -> new ARTMetrics(artName));
+                            metrics.totalAPIs = (metrics.apiSet.add(apiName)) ? 
+                                metrics.totalAPIs + 1 : metrics.totalAPIs;
+                                
+                            if (responseTime > sla) {
+                                metrics.slaCrossedCount++;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Write region-specific SLA analysis
+        String regionSuffix = isNAM ? "nam" : "idl";
+        String slaOutputPath = "C:\\sla_violations_" + regionSuffix + ".csv";
+        writeRegionSLAAnalysis(regionSuffix.toUpperCase(), slaOutputPath, 
+            apiARTMap, apiSLAMap, apiResponseMap);
+    }
+    
+    private static void writeRegionSLAAnalysis(String region, String outputPath, 
+            Map<String, String> apiToArtMap, Map<String, Double> apiSLAMap, 
+            Map<String, Double> apiResponseMap) throws IOException {
+            
+        List<APIDetails> slaViolations = new ArrayList<>();
+        
+        // Collect all SLA violations
+        for (Map.Entry<String, Double> entry : apiResponseMap.entrySet()) {
+            String apiName = entry.getKey();
+            double responseTime = entry.getValue();
+            
+            if (apiSLAMap.containsKey(apiName)) {
+                double sla = apiSLAMap.get(apiName);
+                String artName = apiToArtMap.get(apiName);
+                
+                if (responseTime > sla) {
+                    slaViolations.add(new APIDetails(apiName, artName, responseTime, sla));
+                }
+            }
+        }
+        
+        // Sort by deviation percentage in descending order
+        Collections.sort(slaViolations, (a, b) -> 
+            Double.compare(b.getDeviation(), a.getDeviation()));
+        
+        // Write to file
+        PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(outputPath)));
+        pw.println("API Name,ART Name,Response Time,SLA,Deviation %");
+        
+        for (APIDetails api : slaViolations) {
+            pw.printf("%s,%s,%.2f,%.2f,%.1f%%%n",
+                api.apiName,
+                api.artName,
+                api.responseTime,
+                api.sla,
+                api.getDeviation());
+        }
+        
+        pw.close();
+    }
+    
+    private static void writeCombinedAnalysis(String outputPath, Map<String, ARTMetrics> artMetrics) 
+            throws IOException {
+        PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(outputPath)));
+        
+        pw.println("ART Name,NAM Total APIs,NAM SLA Crossed,NAM SLA Crossed %,IDL Total APIs,IDL SLA Crossed,IDL SLA Crossed %");
+        
+        Set<String> allARTs = new TreeSet<>(artMetrics.keySet());
+        
+        for (String artName : allARTs) {
+            RegionMetrics namMetric = artMetrics.getOrDefault(artName, new RegionMetrics(artName));
+            RegionMetrics idlMetric = artMetrics.getOrDefault(artName, new RegionMetrics(artName));
+            
+            pw.printf("%s,%d,%d,%.1f%%,%d,%d,%.1f%%%n",
+                artName,
+                namMetric.totalAPIs,
+                namMetric.slaCrossedCount,
+                namMetric.getSlaCrossedPercentage(),
+                idlMetric.totalAPIs,
+                idlMetric.slaCrossedCount,
+                idlMetric.getSlaCrossedPercentage());
+        }
+        
+        pw.close();
+    }
+    
+    private static double parseResponseTime(String value) {
+        try {
+            String cleanValue = value.trim();
+            if (cleanValue.startsWith("\"") && cleanValue.endsWith("\"")) {
+                cleanValue = cleanValue.substring(1, cleanValue.length() - 1);
+            }
+            cleanValue = cleanValue.replace(",", "");
+            return Double.parseDouble(cleanValue);
+        } catch (NumberFormatException e) {
+            return 0.0;
+        }
+    }
+    
+    private static List<String> parseCSVLine(String line) {
+        List<String> values = new ArrayList<>();
+        StringBuilder currentValue = new StringBuilder();
+        boolean inQuotes = false;
+        
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            if (c == '"') {
+                if (inQuotes && i + 1 < line.length() && line.charAt(i + 1) == '"') {
+                    currentValue.append('"');
+                    i++;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+            } else if (c == ',' && !inQuotes) {
+                values.add(currentValue.toString().trim());
+                currentValue = new StringBuilder();
+            } else {
+                currentValue.append(c);
+            }
+        }
+        values.add(currentValue.toString().trim());
+        return values;
+    }
+}
