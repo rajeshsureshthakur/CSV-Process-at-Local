@@ -1,0 +1,120 @@
+import java.io.*;
+import java.util.*;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+
+public class CSVMerger {
+    private static final double THRESHOLD = 70.0;
+
+    // Class to hold server metrics
+    private static class ServerMetric {
+        String serverName;
+        String metricName;
+        double maxValue;
+        double avgValue;
+
+        public ServerMetric(String serverName, String metricName, double maxValue, double avgValue) {
+            this.serverName = serverName;
+            this.metricName = metricName;
+            this.maxValue = maxValue;
+            this.avgValue = avgValue;
+        }
+    }
+
+    public static void main(String[] args) {
+        // List of input CSV files containing max values
+        List<String> maxValueFiles = new ArrayList<>();
+        maxValueFiles.add("file1.csv");
+        maxValueFiles.add("file2.csv");
+        maxValueFiles.add("file3.csv");
+        maxValueFiles.add("file4.csv");
+
+        // File containing average values
+        String avgValueFile = "averages.csv";
+        
+        String outputFile = "merged_output.csv";
+        
+        try {
+            // First, read all average values into a map
+            Map<String, Double> serverAvgValues = new HashMap<>();
+            try {
+                List<String> avgLines = Files.readAllLines(Paths.get(avgValueFile));
+                // Skip header
+                for (int i = 1; i < avgLines.size(); i++) {
+                    String[] columns = avgLines.get(i).split(",");
+                    if (columns.length >= 3) {
+                        String serverName = columns[0].trim();
+                        try {
+                            String avgStr = columns[2].trim().replace("%", "");
+                            double avgValue = Double.parseDouble(avgStr);
+                            serverAvgValues.put(serverName, avgValue);
+                        } catch (NumberFormatException e) {
+                            System.err.println("Error parsing average value for server " + serverName);
+                        }
+                    }
+                }
+            } catch (IOException e) {
+                System.err.println("Error reading average values file: " + e.getMessage());
+            }
+
+            // Create FileWriter object for output file
+            FileWriter fw = new FileWriter(outputFile);
+            BufferedWriter bw = new BufferedWriter(fw);
+            
+            // Write header to output file
+            bw.write("Server Name,Metric Name,Metric Max Value,Metric Avg Value");
+            bw.newLine();
+            
+            // Process each input file containing max values
+            for (String inputFile : maxValueFiles) {
+                try {
+                    List<String> lines = Files.readAllLines(Paths.get(inputFile));
+                    
+                    // Skip header line
+                    for (int i = 1; i < lines.size(); i++) {
+                        String line = lines.get(i);
+                        String[] columns = line.split(",");
+                        
+                        if (columns.length >= 3) {
+                            try {
+                                String serverName = columns[0].trim();
+                                String metricName = columns[1].trim();
+                                String maxStr = columns[2].trim().replace("%", "");
+                                double maxValue = Double.parseDouble(maxStr);
+                                
+                                // Only process if max value is greater than threshold
+                                if (maxValue > THRESHOLD) {
+                                    // Get average value for this server
+                                    Double avgValue = serverAvgValues.getOrDefault(serverName, 0.0);
+                                    
+                                    // Write line with both max and avg values
+                                    bw.write(String.format("%s,%s,%.1f%%,%.1f%%",
+                                            serverName,
+                                            metricName,
+                                            maxValue,
+                                            avgValue));
+                                    bw.newLine();
+                                }
+                            } catch (NumberFormatException e) {
+                                System.err.println("Error parsing metric value in line " + i + " of file " + inputFile + ": " + line);
+                            }
+                        } else {
+                            System.err.println("Invalid line format in file " + inputFile + ": " + line);
+                        }
+                    }
+                    
+                    System.out.println("Processed file: " + inputFile);
+                    
+                } catch (IOException e) {
+                    System.err.println("Error reading file " + inputFile + ": " + e.getMessage());
+                }
+            }
+            
+            bw.close();
+            System.out.println("Merged file created successfully: " + outputFile);
+            
+        } catch (IOException e) {
+            System.err.println("Error writing to output file: " + e.getMessage());
+        }
+    }
+}
