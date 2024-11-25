@@ -3,3 +3,14 @@ FROM T1
 JOIN T2
 ON (CONCAT(',', REPLACE(REPLACE(T2.'Prerequisites and dependencies', '\n', ','), ' ', ''), ',') 
     LIKE CONCAT('%,', T1.'API Name', ',%'))
+
+
+SELECT DISTINCT
+    T2.*
+FROM
+    T1,
+    T2
+WHERE
+    T2."Prerequisites and dependencies" LIKE '%' || T1."API Name" || '%'
+ORDER BY
+    T2.created_date DESC;
