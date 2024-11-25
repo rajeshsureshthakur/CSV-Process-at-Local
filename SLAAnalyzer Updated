@@ -35,20 +35,34 @@ public class APISLAAnalyzer {
         }
     }
     
+    static class ProcessingResult {
+        Map<String, RegionMetrics> metrics;
+        Set<String> unmappedAPIs;
+        
+        ProcessingResult(Map<String, RegionMetrics> metrics, Set<String> unmappedAPIs) {
+            this.metrics = metrics;
+            this.unmappedAPIs = unmappedAPIs;
+        }
+    }
+    
     public static void main(String[] args) {
         String namResponsePath = "C:\\nam_sheet1.csv";
         String namSLAPath = "C:\\nam_sheet2.csv";
         String idlResponsePath = "C:\\idl_sheet1.csv";
         String idlSLAPath = "C:\\idl_sheet2.csv";
         String outputPath = "C:\\combined_region_summary.csv";
+        String errorPath = "C:\\missing_art_apis.csv";
         
         try {
-            Map<String, ARTMetrics> artMetrics = new TreeMap<>();
+            Map<String, RegionMetrics> artMetrics = new TreeMap<>();
+            Set<String> namUnmappedAPIs = new HashSet<>();
+            Set<String> idlUnmappedAPIs = new HashSet<>();
             
-            processRegionData(namResponsePath, namSLAPath, artMetrics, true);
-            processRegionData(idlResponsePath, idlSLAPath, artMetrics, false);
+            processRegionData(namResponsePath, namSLAPath, artMetrics, true, namUnmappedAPIs);
+            processRegionData(idlResponsePath, idlSLAPath, artMetrics, false, idlUnmappedAPIs);
             
             writeCombinedAnalysis(outputPath, artMetrics);
+            writeErrorReport(errorPath, namUnmappedAPIs, idlUnmappedAPIs);
             
             System.out.println("Analysis completed. Output files have been generated successfully.");
         } catch (Exception e) {
@@ -57,8 +71,9 @@ public class APISLAAnalyzer {
     }
     
     private static void processRegionData(String responsePath, String slaPath, 
-                                        Map<String, ARTMetrics> artMetrics, 
-                                        boolean isNAM) throws IOException {
+                                        Map<String, RegionMetrics> artMetrics, 
+                                        boolean isNAM,
+                                        Set<String> unmappedAPIs) throws IOException {
         Map<String, Double> apiSLAMap = new HashMap<>();
         Map<String, String> apiARTMap = new HashMap<>();
         Map<String, Double> apiResponseMap = new HashMap<>();
@@ -74,8 +89,10 @@ public class APISLAAnalyzer {
                     String artName = values.get(1).trim();
                     double sla = parseResponseTime(values.get(2));
                     
-                    apiSLAMap.put(apiName, sla);
-                    apiARTMap.put(apiName, artName);
+                    if (!artName.isEmpty()) {
+                        apiSLAMap.put(apiName, sla);
+                        apiARTMap.put(apiName, artName);
+                    }
                 }
             }
         }
@@ -89,25 +106,27 @@ public class APISLAAnalyzer {
                 List<String> values = parseCSVLine(line);
                 if (values.size() >= 6) {
                     String apiName = values.get(0).trim();
-                    double responseTime = parseResponseTime(values.get(5));
                     
-                    if (!processedAPIs.contains(apiName)) {
+                    if (!apiName.isEmpty() && !processedAPIs.contains(apiName)) {
+                        double responseTime = parseResponseTime(values.get(5));
                         apiResponseMap.put(apiName, responseTime);
-                        processedAPIs.add(apiName);
                         
-                        if (apiSLAMap.containsKey(apiName)) {
+                        if (!apiSLAMap.containsKey(apiName)) {
+                            unmappedAPIs.add(apiName);
+                        } else {
                             String artName = apiARTMap.get(apiName);
                             double sla = apiSLAMap.get(apiName);
                             
-                            ARTMetrics metrics = artMetrics.computeIfAbsent(artName, 
-                                k -> new ARTMetrics(artName));
-                            metrics.totalAPIs = (metrics.apiSet.add(apiName)) ? 
-                                metrics.totalAPIs + 1 : metrics.totalAPIs;
-                                
+                            RegionMetrics metrics = artMetrics.computeIfAbsent(artName, 
+                                k -> new RegionMetrics(artName));
+                            metrics.apiSet.add(apiName);
+                            metrics.totalAPIs = metrics.apiSet.size();
+                            
                             if (responseTime > sla) {
                                 metrics.slaCrossedCount++;
                             }
                         }
+                        processedAPIs.add(apiName);
                     }
                 }
             }
@@ -126,7 +145,6 @@ public class APISLAAnalyzer {
             
         List<APIDetails> slaViolations = new ArrayList<>();
         
-        // Collect all SLA violations
         for (Map.Entry<String, Double> entry : apiResponseMap.entrySet()) {
             String apiName = entry.getKey();
             double responseTime = entry.getValue();
@@ -141,11 +159,9 @@ public class APISLAAnalyzer {
             }
         }
         
-        // Sort by deviation percentage in descending order
         Collections.sort(slaViolations, (a, b) -> 
             Double.compare(b.getDeviation(), a.getDeviation()));
         
-        // Write to file
         PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(outputPath)));
         pw.println("API Name,ART Name,Response Time,SLA,Deviation %");
         
@@ -161,7 +177,7 @@ public class APISLAAnalyzer {
         pw.close();
     }
     
-    private static void writeCombinedAnalysis(String outputPath, Map<String, ARTMetrics> artMetrics) 
+    private static void writeCombinedAnalysis(String outputPath, Map<String, RegionMetrics> artMetrics) 
             throws IOException {
         PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(outputPath)));
         
@@ -181,6 +197,24 @@ public class APISLAAnalyzer {
                 idlMetric.totalAPIs,
                 idlMetric.slaCrossedCount,
                 idlMetric.getSlaCrossedPercentage());
+        }
+        
+        pw.close();
+    }
+    
+    private static void writeErrorReport(String errorPath, 
+                                       Set<String> namUnmappedAPIs, 
+                                       Set<String> idlUnmappedAPIs) throws IOException {
+        PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(errorPath)));
+        
+        pw.println("Region,API Name,Error Type");
+        
+        for (String api : namUnmappedAPIs) {
+            pw.printf("NAM,%s,Missing ART Mapping%n", api);
+        }
+        
+        for (String api : idlUnmappedAPIs) {
+            pw.printf("IDL,%s,Missing ART Mapping%n", api);
         }
         
         pw.close();
